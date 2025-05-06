@@ -33,6 +33,11 @@ from .utils import (
     m2cm,
 )
 
+# Import Etain's offset function if available
+import importlib.util
+if importlib.util.find_spec('Etain') is not None:
+    from Etain.offset_surface import OffsetSurface
+
 
 def create_moab_tris_from_verts(corners, mbc, reverse=False):
     """Create 2 moab triangle elements from a list of 4 pymoab verts.
@@ -68,7 +73,7 @@ class ReferenceSurface(ABC):
     layers are built.
     """
 
-    def __init__():
+    def __init__(self):
         pass
 
     def angles_to_xyz(self, toroidal_angle, poloidal_angles, s, scale):
@@ -128,6 +133,67 @@ class VMECSurface(ReferenceSurface):
             x, y, z = self.vmec_obj.vmec2xyz(s, poloidal_angle, toroidal_angle)
             coords.append([x, y, z])
         return np.array(coords) * scale
+
+
+class EtainSurface(ReferenceSurface):
+    def __init__(self, full_surface_file):
+
+        formatted_surface = np.load(full_surface_file)
+        self.offset_surface_3D = OffsetSurface(formatted_surface, 0)
+
+        super().__init__()
+
+    def angles_to_xyz(self, toroidal_angle, poloidal_angles, s, scale):
+        """Method to go from a location defined by two angles and some
+        constant to x, y, z coordinates.
+
+        Arguments:
+            toroidal_angles (float): Toroidal angle at which to
+                evaluate cartesian coordinates. Measured in radians.
+            poloidal_angles (iterable of float): Poloidal angles at which to
+                evaluate cartesian coordinates. Measured in radians.
+            s (float): Generic parameter which may affect the evaluation of
+                the cartesian coordinate at a given angle pair.
+            scale (float): Amount to scale resulting coordinates by.
+
+        Returns:
+            coords (numpy array): Nx3 array of Cartesian coordinates at each
+                angle pair specified.
+        """
+        assert self.offset_surface_3D is not None
+
+        num_angles = len(poloidal_angles)
+        locs = np.array((num_angles, 3))
+        for i in range(num_angles):
+            locs[i] = self.offset_surface_3D.get_cartesian_location(toroidal_angle, poloidal_angles[i])
+
+        locs *= scale
+
+        return locs
+
+    def offset_points(self, toroidal_angle, poloidal_angles, offsets):
+        """Method to offset a set of points from the original surface, using Etain's 3D offset function.
+
+        Arguments:
+            toroidal_angle (float): Toroidal angle at which to
+                evaluate the points to offset. Radians.
+            poloidal_angles (numpy array of floats): Poloidal angles at which to
+                evaluate the points to offset. Radians.
+            s (float): not used.
+            offsets (numpy array of floats): Amount to scale resulting coordinates by. cm
+
+        Returns:
+            coords (numpy array): Nx3 array of Cartesian coordinates for each offset point.
+        """
+
+        assert len(poloidal_angles) == len(offsets)
+
+        num_angles = len(poloidal_angles)
+        offset_pts = np.zeros((num_angles, 3))
+        for i in range(num_angles):
+            offset_pts[i] = self.offset_surface_3D.offset_point(toroidal_angle, poloidal_angles[i], 1e-2*offsets[i])
+
+        return offset_pts
 
 
 class RibBasedSurface(ReferenceSurface):
@@ -1049,9 +1115,12 @@ class Rib(object):
         """Generates Cartesian point-loci for stellarator rib. Sets the last
         element to the value of the first to ensure the loop is closed exactly.
         """
-        self.rib_loci = self._calculate_cartesian_coordinates()
-        if not np.all(self.offset_list == 0):
-            self.rib_loci += self.offset_list[:, np.newaxis] * self._normals()
+        if isinstance(self.ref_surf, EtainSurface):
+            self.rib_loci = self.ref_surf.offset_points(self.phi, self.theta_list, self.offset_list)
+        else:
+            self.rib_loci = self._calculate_cartesian_coordinates()
+            if not np.all(self.offset_list == 0):
+                self.rib_loci += self.offset_list[:, np.newaxis] * self._normals()
 
         self.rib_loci[-1] = self.rib_loci[0]
 
