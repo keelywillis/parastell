@@ -370,6 +370,9 @@ class InVesselBuild(object):
         self.ref_surf = ref_surf
         self.radial_build = radial_build
 
+        if isinstance(ref_surf, EtainSurface):
+            self._logger.info("Using 3D offsets from Etain...")
+
         self.repeat = 0
         self.num_ribs = 61
         self.num_rib_pts = 61
