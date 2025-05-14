@@ -1,6 +1,7 @@
 import argparse
 from pathlib import Path
 from abc import ABC
+import os
 
 import numpy as np
 from scipy.interpolate import (
@@ -139,9 +140,25 @@ class EtainSurface(ReferenceSurface):
     def __init__(self, full_surface_file):
 
         formatted_surface = np.load(full_surface_file)
-        self.offset_surface_3D = OffsetSurface(formatted_surface, 0)
+        self.offset_surface_3D = OffsetSurface(formatted_surface)
+        self.construct_offset_surfs(os.path.split(full_surface_file)[0])
 
         super().__init__()
+
+    def construct_offset_surfs(self, output_path, max_offset=200):
+        """
+        Method to create necessary data for 3D offsetting. This is super slow, the first time.
+
+        Args:
+            output_path: string. Path to the directory to load/save the offsetting data
+            max_offset: float. The largest distance we need to be able to offset to
+
+        Returns:
+            None
+        """
+        self.intermed_offsets = OffsetSurface.construct_offset_layers(self.offset_surface_3D, max_offset, output_path)
+
+        return
 
     def angles_to_xyz(self, toroidal_angle, poloidal_angles, s, scale):
         """Method to go from a location defined by two angles and some
@@ -190,8 +207,17 @@ class EtainSurface(ReferenceSurface):
 
         num_angles = len(poloidal_angles)
         offset_pts = np.zeros((num_angles, 3))
+
+        offset_dists = list(self.intermed_offsets.keys())
+        assert np.min(offsets) >= np.min(offset_dists)
+
+        # Get the layer that's just inside this one
+        nearest_layer = np.where(offset_dists <= np.min(offsets))[0][-1]
+        offset_dist = offset_dists[nearest_layer]
+        offset_surf = self.intermed_offsets[offset_dist]
+
         for i in range(num_angles):
-            offset_pts[i] = self.offset_surface_3D.offset_point(toroidal_angle, poloidal_angles[i], 1e-2*offsets[i])
+            offset_pts[i] = offset_surf.offset_point(toroidal_angle, poloidal_angles[i], 1e-2 * (offsets[i] - offset_dist))
 
         return offset_pts
 
@@ -444,6 +470,10 @@ class InVesselBuild(object):
                 including interpolated offset values at additional rows and
                 columns [cm].
         """
+        if (offset_mat.shape[0] == len(self.radial_build.toroidal_angles) and
+            offset_mat.shape[1] == len(self.radial_build.poloidal_angles)) :
+            return offset_mat
+
         interpolator = RegularGridInterpolator(
             (
                 self.radial_build.toroidal_angles,
