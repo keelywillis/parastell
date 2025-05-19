@@ -1,5 +1,5 @@
 import numpy as np
-import cubit
+# import cubit
 import pystell.read_vmec as read_vmec
 
 from . import magnet_coils

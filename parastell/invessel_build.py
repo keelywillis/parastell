@@ -180,9 +180,10 @@ class EtainSurface(ReferenceSurface):
         assert self.offset_surface_3D is not None
 
         num_angles = len(poloidal_angles)
-        locs = np.array((num_angles, 3))
+        locs = np.zeros((num_angles, 3))
         for i in range(num_angles):
-            locs[i] = self.offset_surface_3D.get_cartesian_location(toroidal_angle, poloidal_angles[i])
+            # Locations come out of Etain in meters. Convert to cm
+            locs[i] = 100 * self.offset_surface_3D.get_cartesian_location(toroidal_angle, poloidal_angles[i])
 
         locs *= scale
 
@@ -212,12 +213,13 @@ class EtainSurface(ReferenceSurface):
         assert np.min(offsets) >= np.min(offset_dists)
 
         # Get the layer that's just inside this one
-        nearest_layer = np.where(offset_dists <= np.min(offsets))[0][-1]
-        offset_dist = offset_dists[nearest_layer]
-        offset_surf = self.intermed_offsets[offset_dist]
-
         for i in range(num_angles):
-            offset_pts[i] = offset_surf.offset_point(toroidal_angle, poloidal_angles[i], 1e-2 * (offsets[i] - offset_dist))
+            nearest_layer = np.where(offset_dists <= offsets[i])[0][-1]
+            offset_dist = offset_dists[nearest_layer]
+            offset_surf = self.intermed_offsets[offset_dist]
+
+            # Etain is in meters, and Parastell is in centimeters. Convert both ways.
+            offset_pts[i] = 1e2 * offset_surf.offset_point(toroidal_angle, poloidal_angles[i], 1e-2 * (offsets[i] - offset_dist))
 
         return offset_pts
 
@@ -545,7 +547,14 @@ class InVesselBuild(object):
         """
         self._logger.info("Computing point cloud for in-vessel components...")
 
-        [surface.calculate_loci() for surface in self.Surfaces.values()]
+        for name, surface in self.Surfaces.items():
+            fname = f'surf_loci_{name}.npy'
+            if os.path.exists(fname):
+                loci = np.load(fname)
+                surface.set_loci(loci)
+            else:
+                surface.calculate_loci()
+                np.save(fname, surface.get_loci())
 
     def generate_components(self):
         if self.use_pydagmc:
@@ -1071,6 +1080,10 @@ class Surface(object):
         """Returns the set of point-loci defining the ribs in the surface."""
         return np.array([rib.rib_loci for rib in self.Ribs])
 
+    def set_loci(self, loci):
+        assert len(loci) == len(self.Ribs)
+        for i in range(len(loci)):
+            self.Ribs[i].rib_loci = loci[i]
 
 class Rib(object):
     """An object representing a curve formed by interpolating a spline through
