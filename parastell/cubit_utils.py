@@ -13,7 +13,7 @@ def check_cubit_installation():
             path.
     """
     try:
-        # import cubit
+        import cubit
 
         return True
     except ImportError:
@@ -22,8 +22,8 @@ def check_cubit_installation():
 
 def init_cubit():
     """Initializes Coreform Cubit."""
-    # global cubit
-    # import cubit
+    global cubit
+    import cubit
 
     global initialized
 
