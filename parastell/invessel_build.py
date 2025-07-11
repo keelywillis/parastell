@@ -183,12 +183,23 @@ class EtainSurface(ReferenceSurface):
         num_angles = len(poloidal_angles)
         locs = np.zeros((num_angles, 3))
         for i in range(num_angles):
-            # Locations come out of Etain in meters. Convert to cm
-            locs[i] = 100 * self.offset_surface_3D.get_cartesian_location(toroidal_angle, poloidal_angles[i])
+            # Locations come out of Etain in meters. It is converted with scale, below.
+            locs[i] = self.offset_surface_3D.get_cartesian_location(toroidal_angle, poloidal_angles[i])
 
         locs *= scale
 
         return locs
+
+
+    def get_cart_normal_at_points(self, toroidal_angle, poloidal_angles):
+        num_angles = len(poloidal_angles)
+        norms = np.zeros((num_angles, 3))
+
+        for i in range(num_angles):
+            norms[i] = self.offset_surface_3D.get_cart_normal_at_point(toroidal_angle, poloidal_angles[i])
+
+        return norms
+
 
     def offset_points(self, toroidal_angle, poloidal_angles, offsets):
         """Method to offset a set of points from the original surface, using Etain's 3D offset function.
@@ -220,7 +231,7 @@ class EtainSurface(ReferenceSurface):
             offset_surf = self.intermed_offsets[offset_dist]
 
             # Etain is in meters, and Parastell is in centimeters. Convert both ways.
-            offset_pts[i] = 1e2 * offset_surf.offset_point(toroidal_angle, poloidal_angles[i], 1e-2 * (offsets[i] - offset_dist))
+            offset_pts[i] = m2cm * offset_surf.offset_point(toroidal_angle, poloidal_angles[i], (offsets[i] - offset_dist) / m2cm)
 
         return offset_pts
 
@@ -475,7 +486,7 @@ class InVesselBuild(object):
         """
         if (offset_mat.shape[0] == len(self.radial_build.toroidal_angles) and
             offset_mat.shape[1] == len(self.radial_build.poloidal_angles)) :
-            return offset_mat
+            return offset_mat.copy()
 
         interpolator = RegularGridInterpolator(
             (
@@ -1269,6 +1280,10 @@ class Rib(object):
             r_loci (np.array(double)): Cartesian point-loci of reference
                 surface rib [cm].
         """
+        if isinstance(self.ref_surf, EtainSurface):
+            # Get 3D normals from Etain
+            return self.ref_surf.get_cart_normal_at_points(self.phi, self.theta_list)
+
         eps = 1e-4
         next_pt_loci = self._calculate_cartesian_coordinates(eps)
 
